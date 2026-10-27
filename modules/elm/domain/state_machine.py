@@ -58,3 +58,16 @@ def validate_transition(from_status: str, to_status: str) -> None:
         if t.frm.value == from_status and t.to.value == to_status:
             return
     raise InvalidTransition(f"Illegal workflow transition from '{from_status}' to '{to_status}'.")
+
+
+def validate_step_decision(step_type: str, decision: str) -> None:
+    """Validate that a decision matches the kind of approval step."""
+    valid_decisions = {
+        "recommendation": {"recommended", "not_recommended"},
+        "final_decision": {"approved", "rejected"},
+        "establishment_verification": {"approved", "rejected"},
+    }
+    if decision not in valid_decisions.get(step_type, set()):
+        raise InvalidTransition(
+            f"Decision '{decision}' is not valid for a {step_type} step."
+        )

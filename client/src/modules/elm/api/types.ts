@@ -42,6 +42,20 @@ export interface ApprovalStep {
   comment: string;
   decided_by_user_id?: number | null;
   decided_at?: string | null;
+  application: ApprovalApplicationSummary;
+}
+
+export interface ApprovalApplicationSummary {
+  id: number;
+  user_id: number;
+  category: string;
+  status: string;
+  leave_start: string;
+  leave_end: string;
+  computed_days: string;
+  purpose: string;
+  substitute_user_id?: number | null;
+  substitute_status: string;
 }
 
 export interface LeaveApplication {

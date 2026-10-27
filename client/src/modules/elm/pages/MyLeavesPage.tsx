@@ -1,11 +1,18 @@
-import { Badge, Button, Card, Container, Group, Table, Text } from "@mantine/core";
+import { Badge, Button, Card, Container, Group, Modal, Table, Text, TextInput } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { FaBan, FaPlus, FaUndo } from "react-icons/fa";
 import { Link } from "react-router-dom";
+import { useState } from "react";
 import { PageHeader } from "../../../ui/components/PageHeader";
 import { ErrorState } from "../../../ui/components/ErrorState";
 import { errorMessage } from "../../../lib/http";
-import { useCancelLeave, useMyLeaveApplications, useWithdrawLeave } from "../api/hooks";
+import {
+  useCancelLeave,
+  useExtendLeave,
+  useMyLeaveApplications,
+  useRecordResumption,
+  useWithdrawLeave,
+} from "../api/hooks";
 import type { LeaveApplication } from "../api/types";
 
 function statusColor(status: string) {
@@ -31,6 +38,14 @@ export default function MyLeavesPage() {
   const { data: applications, error } = useMyLeaveApplications();
   const withdraw = useWithdrawLeave();
   const cancel = useCancelLeave();
+  const extend = useExtendLeave();
+  const resumption = useRecordResumption();
+  const [dialog, setDialog] = useState<{
+    kind: "extend" | "resume";
+    app: LeaveApplication;
+  } | null>(null);
+  const [dateValue, setDateValue] = useState("");
+  const [purpose, setPurpose] = useState("");
 
   if (error) {
     return (
@@ -41,6 +56,7 @@ export default function MyLeavesPage() {
   }
 
   function handleWithdraw(app: LeaveApplication) {
+    if (!window.confirm(`Withdraw leave #${app.id} and restore its balance?`)) return;
     withdraw.mutate(app.id, {
       onSuccess: () => {
         notifications.show({
@@ -60,6 +76,7 @@ export default function MyLeavesPage() {
   }
 
   function handleCancel(app: LeaveApplication) {
+    if (!window.confirm(`Cancel approved leave #${app.id} and restore its balance?`)) return;
     cancel.mutate(app.id, {
       onSuccess: () => {
         notifications.show({
@@ -76,6 +93,45 @@ export default function MyLeavesPage() {
         });
       },
     });
+  }
+
+  function openDialog(kind: "extend" | "resume", app: LeaveApplication) {
+    setDialog({ kind, app });
+    setDateValue(kind === "extend" ? app.leave_end : new Date().toISOString().slice(0, 10));
+    setPurpose("");
+  }
+
+  function closeDialog() {
+    setDialog(null);
+    setDateValue("");
+    setPurpose("");
+  }
+
+  function submitDialog() {
+    if (!dialog || !dateValue) return;
+    if (dialog.kind === "extend") {
+      extend.mutate(
+        { applicationId: dialog.app.id, extendedEndDate: dateValue, purpose },
+        {
+          onSuccess: () => {
+            closeDialog();
+            notifications.show({ color: "blue", title: "Extension Submitted", message: "The extension is now in the approval workflow." });
+          },
+          onError: (err) => notifications.show({ color: "red", title: "Extension Failed", message: errorMessage(err) }),
+        }
+      );
+    } else {
+      resumption.mutate(
+        { applicationId: dialog.app.id, actualResumptionDate: dateValue },
+        {
+          onSuccess: () => {
+            closeDialog();
+            notifications.show({ color: "green", title: "Resumption Recorded", message: "Your leave balance has been adjusted." });
+          },
+          onError: (err) => notifications.show({ color: "red", title: "Resumption Failed", message: errorMessage(err) }),
+        }
+      );
+    }
   }
 
   return (
@@ -113,6 +169,8 @@ export default function MyLeavesPage() {
             {(applications ?? []).map((app) => {
               const canWithdraw = ["submitted", "recommended", "not_recommended"].includes(app.status);
               const canCancel = app.status === "approved" && new Date(app.leave_start) > new Date();
+              const canExtend = app.status === "approved" && ["EL", "COL", "VL"].includes(app.category) && !app.is_resumption && new Date(app.leave_end).getTime() >= Date.now();
+              const canResume = app.status === "approved" && !app.is_resumption && new Date(app.leave_start).getTime() <= Date.now();
 
               return (
                 <Table.Tr key={app.id}>
@@ -189,6 +247,16 @@ export default function MyLeavesPage() {
                           Cancel
                         </Button>
                       )}
+                      {canExtend && (
+                        <Button size="xs" variant="light" onClick={() => openDialog("extend", app)}>
+                          Extend
+                        </Button>
+                      )}
+                      {canResume && (
+                        <Button size="xs" variant="light" color="teal" onClick={() => openDialog("resume", app)}>
+                          Resume
+                        </Button>
+                      )}
                     </Group>
                   </Table.Td>
                 </Table.Tr>
@@ -197,6 +265,39 @@ export default function MyLeavesPage() {
           </Table.Tbody>
         </Table>
       </Card>
+
+      <Modal
+        opened={dialog !== null}
+        onClose={closeDialog}
+        title={dialog?.kind === "extend" ? "Request Leave Extension" : "Record Resumption"}
+      >
+        <TextInput
+          type="date"
+          label={dialog?.kind === "extend" ? "New end date" : "Actual resumption date"}
+          value={dateValue}
+          onChange={(event) => setDateValue(event.currentTarget.value)}
+          required
+        />
+        {dialog?.kind === "extend" && (
+          <TextInput
+            mt="md"
+            label="Purpose"
+            value={purpose}
+            onChange={(event) => setPurpose(event.currentTarget.value)}
+            required
+          />
+        )}
+        <Group justify="flex-end" mt="lg">
+          <Button variant="default" onClick={closeDialog}>Close</Button>
+          <Button
+            onClick={submitDialog}
+            loading={extend.isPending || resumption.isPending}
+            disabled={!dateValue || (dialog?.kind === "extend" && !purpose.trim())}
+          >
+            Submit
+          </Button>
+        </Group>
+      </Modal>
     </Container>
   );
 }

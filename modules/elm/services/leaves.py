@@ -296,9 +296,32 @@ def request_extension(
         raise PolicyValidationError("Extensions are only permissible for ongoing EL, COL, or VL.")
     if extended_end_date <= orig.leave_end:
         raise InvalidLeaveDatesError("Extended end date must be after current end date.")
+    if extended_end_date.year != orig.leave_end.year:
+        raise PolicyValidationError("Extensions must remain within the original leave year.")
+    if LeaveApplication.objects.filter(
+        extension_of=orig,
+        status__in=["submitted", "recommended", "not_recommended", "approved"],
+    ).exists():
+        raise InvalidTransition("This leave already has an active extension request.")
 
     ext_start = orig.leave_end + timezone.timedelta(days=1)
-    duration = rules.calculate_duration_days(ext_start, extended_end_date, orig.category)
+    holidays = set(
+        HolidayCalendarEntry.objects.filter(year=ext_start.year).values_list("date", flat=True)
+    )
+    duration = rules.calculate_duration_days(
+        ext_start,
+        extended_end_date,
+        orig.category,
+        holiday_calendar_dates=holidays,
+    )
+
+    existing_leaves = list(
+        LeaveApplication.objects.filter(
+            user_id=user_id,
+            status__in=["submitted", "recommended", "not_recommended", "approved"],
+        ).values("id", "leave_start", "leave_end", "is_half_day", "half_day", "status")
+    )
+    rules.validate_no_overlap(ext_start, extended_end_date, False, "", existing_leaves)
 
     # Balance check
     year = ext_start.year
@@ -334,6 +357,16 @@ def request_extension(
         recorded_by_user_id=user_id,
     )
 
+    for original_step in orig.approval_steps.all().order_by("step_order"):
+        ApprovalStep.objects.create(
+            application=ext_app,
+            step_order=original_step.step_order,
+            assigned_user_id=original_step.assigned_user_id,
+            assigned_role=original_step.assigned_role,
+            step_type=original_step.step_type,
+            decision=StepDecision.PENDING,
+        )
+
     return ext_app
 
 
@@ -347,6 +380,12 @@ def record_resumption(
         raise ElmDomainError("Only the applicant can record resumption.")
     if app.status != LeaveStatus.APPROVED:
         raise InvalidTransition("Resumption can only be filed for approved leave.")
+    if app.is_resumption:
+        raise InvalidTransition("Resumption has already been recorded for this leave.")
+    if actual_resumption_date < app.leave_start:
+        raise InvalidLeaveDatesError("Resumption cannot be before the leave start date.")
+    if actual_resumption_date > timezone.localdate():
+        raise InvalidLeaveDatesError("Resumption cannot be recorded for a future date.")
 
     expected_end = app.leave_end
     app.is_resumption = True
@@ -379,6 +418,7 @@ def record_resumption(
         else:
             # Resumed late: deduct extra days
             extra = Decimal(delta_days)
+            rules.validate_balance_available(balance.balance, extra)
             balance.balance -= extra
             balance.used += extra
             app.computed_days += extra
@@ -474,6 +514,15 @@ def process_approval_step(
 
     app = LeaveApplication.objects.select_for_update().get(pk=step.application_id)
 
+    if ApprovalStep.objects.filter(
+        application_id=step.application_id,
+        step_order__lt=step.step_order,
+        decision=StepDecision.PENDING,
+    ).exists():
+        raise InvalidTransition("Earlier approval steps must be completed first.")
+
+    state_machine.validate_step_decision(step.step_type, decision)
+
     # Consent gate check (BR-EL-015): substitute must have accepted if nominated
     if app.substitute_user_id and app.substitute_status != SubstituteStatus.ACCEPTED:
         raise PolicyValidationError("Cannot approve request while substitute consent gate is closed.")
@@ -493,6 +542,7 @@ def process_approval_step(
         app.save(update_fields=["status", "updated_at"])
 
     elif step.step_type == "final_decision":
+        state_machine.validate_transition(app.status, decision)
         if decision == "approved":
             app.status = LeaveStatus.APPROVED
             app.save(update_fields=["status", "updated_at"])

@@ -56,12 +56,32 @@ class HolidayCalendarSerializer(serializers.ModelSerializer):
         ]
 
 
+class ApprovalApplicationSummarySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = LeaveApplication
+        fields = [
+            "id",
+            "user_id",
+            "category",
+            "status",
+            "leave_start",
+            "leave_end",
+            "computed_days",
+            "purpose",
+            "substitute_user_id",
+            "substitute_status",
+        ]
+
+
 class ApprovalStepSerializer(serializers.ModelSerializer):
+    application = ApprovalApplicationSummarySerializer(read_only=True)
+
     class Meta:
         model = ApprovalStep
         fields = [
             "id",
             "application_id",
+            "application",
             "step_order",
             "assigned_user_id",
             "assigned_role",

@@ -118,7 +118,7 @@ export default function LeaveTasksPage() {
               <Table striped highlightOnHover>
                 <Table.Thead>
                   <Table.Tr>
-                    <Table.Th>App ID</Table.Th>
+                              <Table.Th>Application</Table.Th>
                     <Table.Th>Role</Table.Th>
                     <Table.Th>Step Type</Table.Th>
                     <Table.Th>Order</Table.Th>
@@ -131,7 +131,13 @@ export default function LeaveTasksPage() {
                     const isRec = step.step_type === "recommendation";
                     return (
                       <Table.Tr key={step.id}>
-                        <Table.Td fw={700}>#{step.application_id}</Table.Td>
+                        <Table.Td>
+                          <Text fw={700}>#{step.application_id} · {step.application.category}</Text>
+                          <Text size="xs" c="dimmed">
+                            User #{step.application.user_id} · {step.application.leave_start} to {step.application.leave_end}
+                          </Text>
+                          <Text size="xs" lineClamp={2}>{step.application.purpose}</Text>
+                        </Table.Td>
                         <Table.Td>
                           <Badge variant="outline">{step.assigned_role}</Badge>
                         </Table.Td>

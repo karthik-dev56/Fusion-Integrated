@@ -6,7 +6,12 @@ import pytest
 
 from modules.elm.domain.entities import LeaveCategory, LeaveStatus
 from modules.elm.domain.errors import InvalidTransition
-from modules.elm.domain.state_machine import TERMINAL_STATES, TRANSITIONS, validate_transition
+from modules.elm.domain.state_machine import (
+    TERMINAL_STATES,
+    TRANSITIONS,
+    validate_step_decision,
+    validate_transition,
+)
 
 
 def test_submitted_can_transition_to_recommended():
@@ -45,6 +50,20 @@ def test_cannot_transition_from_rejected_to_approved():
 def test_cannot_transition_from_withdrawn_to_approved():
     with pytest.raises(InvalidTransition):
         validate_transition("withdrawn", "approved")
+
+
+def test_recommendation_step_accepts_only_recommendation_decisions():
+    validate_step_decision("recommendation", "recommended")
+    validate_step_decision("recommendation", "not_recommended")
+    with pytest.raises(InvalidTransition):
+        validate_step_decision("recommendation", "approved")
+
+
+def test_final_step_accepts_only_final_decisions():
+    validate_step_decision("final_decision", "approved")
+    validate_step_decision("final_decision", "rejected")
+    with pytest.raises(InvalidTransition):
+        validate_step_decision("final_decision", "recommended")
 
 
 def test_cannot_transition_from_cancelled_to_submitted():

@@ -116,6 +116,41 @@ export function useCancelLeave() {
   });
 }
 
+export function useExtendLeave() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      applicationId,
+      extendedEndDate,
+      purpose,
+    }: { applicationId: number; extendedEndDate: string; purpose: string }) => {
+      const res = await http.post<LeaveApplication>(
+        `/elm/applications/${applicationId}/extend/`,
+        { extended_end_date: extendedEndDate, purpose }
+      );
+      return res.data;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["elm"] }),
+  });
+}
+
+export function useRecordResumption() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      applicationId,
+      actualResumptionDate,
+    }: { applicationId: number; actualResumptionDate: string }) => {
+      const res = await http.post<LeaveApplication>(
+        `/elm/applications/${applicationId}/resumption/`,
+        { actual_resumption_date: actualResumptionDate }
+      );
+      return res.data;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["elm"] }),
+  });
+}
+
 export function useRespondSubstitute() {
   const qc = useQueryClient();
   return useMutation({

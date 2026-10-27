@@ -3,7 +3,7 @@
 Ownership and scope filtering lives here (ADR-0010, Module Authoring Guide).
 """
 from datetime import date
-from django.db.models import QuerySet
+from django.db.models import Exists, OuterRef, Q, QuerySet
 
 from ..models import ApprovalStep, HolidayCalendarEntry, LeaveApplication, LeaveBalance, LeavePolicy
 
@@ -26,18 +26,25 @@ def get_application_detail(application_id: int, user_id: int | None = None) -> L
     """Fetch application detail. If user_id provided, ensures applicant or assignee access."""
     qs = LeaveApplication.objects.prefetch_related("approval_steps", "balance_transactions")
     if user_id is not None:
-        qs = qs.filter(user_id=user_id)
+        qs = qs.filter(Q(user_id=user_id) | Q(approval_steps__assigned_user_id=user_id)).distinct()
     return qs.filter(pk=application_id).first()
 
 
 def get_pending_approval_steps(approver_user_id: int) -> QuerySet[ApprovalStep]:
     """Return actionable approval steps currently waiting for this approver's action."""
+    earlier_pending = ApprovalStep.objects.filter(
+        application_id=OuterRef("application_id"),
+        step_order__lt=OuterRef("step_order"),
+        decision="pending",
+    )
     return (
         ApprovalStep.objects.filter(
             assigned_user_id=approver_user_id,
             decision="pending",
             application__status__in=["submitted", "recommended", "not_recommended"],
         )
+        .annotate(has_earlier_pending=Exists(earlier_pending))
+        .filter(has_earlier_pending=False)
         .select_related("application")
         .order_by("step_order", "-created_at")
     )
